@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'pages/splash_screen.dart';
 import 'pages/welcome_page.dart';
 import 'pages/home_page.dart';
 import 'pages/reminders_page.dart';
@@ -25,7 +26,8 @@ class MyApp extends StatelessWidget {
       ),
       initialRoute: '/',
       routes: {
-        '/': (context) => const WelcomePage(),
+        '/': (context) => const SplashScreen(),
+        '/welcome': (context) => const WelcomePage(),
         '/home': (context) => const HomePage(),
         '/reminders': (context) => const RemindersPage(),
         '/journal': (context) => const JournalPage(),

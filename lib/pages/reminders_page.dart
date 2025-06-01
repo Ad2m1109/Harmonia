@@ -6,8 +6,19 @@ class RemindersPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Reminders')),
-      body: const Center(child: Text('Reminders Page')),
+      appBar: AppBar(
+        title: Text("slm"),
+        actions: [
+          Icon(Icons.car_crash_outlined)
+        ],
+          ),
+      body: Container(
+        color: Colors.lightBlue,
+          child: Center(child: Text('Reminders Page'))),
+      floatingActionButton: Container(
+        height: 50,
+        color: Colors.red,
+      ),
     );
   }
 }
