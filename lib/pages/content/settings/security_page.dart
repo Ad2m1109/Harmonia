@@ -3,6 +3,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'dart:io';
 import 'dart:async';
 
@@ -18,7 +19,7 @@ class SecurityPage extends StatefulWidget {
   State<SecurityPage> createState() => _SecurityPageState();
 }
 
-class _SecurityPageState extends State<SecurityPage> {
+class _SecurityPageState extends State<SecurityPage> with WidgetsBindingObserver {
   GoogleMapController? mapController;
   LatLng? _currentLocation;
   LatLng? _selectedLocation;
@@ -28,10 +29,17 @@ class _SecurityPageState extends State<SecurityPage> {
   final double _geofenceRadius = 100; // in meters
   bool _isMonitoringEnabled = false;
   DateTime? _lastAlertTime;
+  bool _isOutsideGeofence = false;
+
+  // Notification setup
+  FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
+  FlutterLocalNotificationsPlugin();
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _initializeNotifications();
     _getCurrentLocation();
     _loadSavedLocation();
     _loadHomeLocation();
@@ -41,7 +49,111 @@ class _SecurityPageState extends State<SecurityPage> {
   @override
   void dispose() {
     _locationTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Continue monitoring even when app goes to background
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+      if (_isMonitoringEnabled && _homeLocation != null) {
+        _startLocationMonitoring();
+      }
+    }
+  }
+
+  Future<void> _initializeNotifications() async {
+    // Android initialization
+    const AndroidInitializationSettings initializationSettingsAndroid =
+    AndroidInitializationSettings('@mipmap/ic_launcher');
+
+    // iOS initialization
+    const DarwinInitializationSettings initializationSettingsIOS =
+    DarwinInitializationSettings(
+      requestAlertPermission: true,
+      requestBadgePermission: true,
+      requestSoundPermission: true,
+    );
+
+    const InitializationSettings initializationSettings =
+    InitializationSettings(
+      android: initializationSettingsAndroid,
+      iOS: initializationSettingsIOS,
+    );
+
+    await flutterLocalNotificationsPlugin.initialize(
+      initializationSettings,
+      onDidReceiveNotificationResponse: _onNotificationTapped,
+    );
+
+    // Request permissions for Android 13+
+    if (Platform.isAndroid) {
+      await flutterLocalNotificationsPlugin
+          .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin>()
+          ?.requestNotificationsPermission();
+    }
+
+    // Request permissions for iOS
+    if (Platform.isIOS) {
+      await flutterLocalNotificationsPlugin
+          .resolvePlatformSpecificImplementation<
+          IOSFlutterLocalNotificationsPlugin>()
+          ?.requestPermissions(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+    }
+  }
+
+  void _onNotificationTapped(NotificationResponse notificationResponse) {
+    // Handle notification tap - navigate to home
+    if (notificationResponse.id == 1) {
+      _navigateToHome();
+    }
+  }
+
+  Future<void> _showGeofenceNotification({
+    required String title,
+    required String body,
+    bool isExiting = true,
+  }) async {
+    const AndroidNotificationDetails androidPlatformChannelSpecifics =
+    AndroidNotificationDetails(
+      'geofence_channel',
+      'Geofence Notifications',
+      channelDescription: 'Notifications for geofence events',
+      importance: Importance.high,
+      priority: Priority.high,
+      showWhen: true,
+      enableVibration: true,
+      playSound: true,
+      icon: '@mipmap/ic_launcher',
+      color: Color(0xFF87CEEB),
+      styleInformation: BigTextStyleInformation(''),
+    );
+
+    const DarwinNotificationDetails iOSPlatformChannelSpecifics =
+    DarwinNotificationDetails(
+      presentAlert: true,
+      presentBadge: true,
+      presentSound: true,
+      interruptionLevel: InterruptionLevel.active,
+    );
+
+    const NotificationDetails platformChannelSpecifics = NotificationDetails(
+      android: androidPlatformChannelSpecifics,
+      iOS: iOSPlatformChannelSpecifics,
+    );
+
+    await flutterLocalNotificationsPlugin.show(
+      1, // Notification ID
+      title,
+      body,
+      platformChannelSpecifics,
+    );
   }
 
   Future<void> _getCurrentLocation() async {
@@ -218,7 +330,7 @@ class _SecurityPageState extends State<SecurityPage> {
       _startLocationMonitoring();
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Location monitoring enabled. You will see alerts when away from home.'),
+          content: Text('Location monitoring enabled. You will receive notifications when away from home.'),
           backgroundColor: Colors.green,
         ),
       );
@@ -242,6 +354,7 @@ class _SecurityPageState extends State<SecurityPage> {
 
   void _stopLocationMonitoring() {
     _locationTimer?.cancel();
+    _isOutsideGeofence = false;
   }
 
   Future<void> _checkDistanceFromHome() async {
@@ -258,14 +371,39 @@ class _SecurityPageState extends State<SecurityPage> {
         _homeLocation!.longitude,
       );
 
-      if (distance > _geofenceRadius) {
-        // Prevent spam alerts - only show once every 30 minutes
-        if (_lastAlertTime == null ||
-            DateTime.now().difference(_lastAlertTime!).inMinutes > 30) {
-          _lastAlertTime = DateTime.now();
-          _showNavigationDialog();
+      bool currentlyOutside = distance > _geofenceRadius;
+
+      // Check if status changed
+      if (currentlyOutside != _isOutsideGeofence) {
+        _isOutsideGeofence = currentlyOutside;
+
+        if (currentlyOutside) {
+          // Just left home area
+          await _showGeofenceNotification(
+            title: '🚨 Security Alert',
+            body: 'You have moved more than 100m from your home location. Tap for directions back home.',
+            isExiting: true,
+          );
+
+          // Show dialog if app is active
+          if (mounted && WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
+            _showNavigationDialog();
+          }
+        } else {
+          // Returned home
+          await _showGeofenceNotification(
+            title: '🏠 Welcome Home',
+            body: 'You have returned to your home area.',
+            isExiting: false,
+          );
         }
       }
+
+      // Update last alert time for spam prevention
+      if (currentlyOutside) {
+        _lastAlertTime = DateTime.now();
+      }
+
     } catch (e) {
       print('Error checking distance from home: $e');
     }
@@ -284,12 +422,13 @@ class _SecurityPageState extends State<SecurityPage> {
           spacing: 8,
           crossAxisAlignment: WrapCrossAlignment.center,
           children: [
-            Icon(Icons.warning, color: Colors.orange, size: 24),
+            Icon(Icons.warning, color: Colors.red, size: 24),
             Text(
-              'Away From Home',
+              'Security Alert',
               style: TextStyle(
                 fontSize: 18,
                 color: widget.isDarkMode ? Colors.white : Colors.black,
+                fontWeight: FontWeight.bold,
               ),
             ),
           ],
@@ -308,7 +447,7 @@ class _SecurityPageState extends State<SecurityPage> {
               TextButton(
                 onPressed: () => Navigator.pop(context),
                 child: Text(
-                  'Not Now',
+                  'Dismiss',
                   style: TextStyle(
                     color: widget.isDarkMode ? Colors.white70 : Colors.grey[600],
                   ),
@@ -321,7 +460,7 @@ class _SecurityPageState extends State<SecurityPage> {
                   _navigateToHome();
                 },
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blue,
+                  backgroundColor: Colors.red,
                   foregroundColor: Colors.white,
                 ),
                 child: Text('Get Directions'),
@@ -373,201 +512,214 @@ class _SecurityPageState extends State<SecurityPage> {
       ),
       body: _isLoading
           ? Center(
-              child: CircularProgressIndicator(color: primaryColor),
-            )
+        child: CircularProgressIndicator(color: primaryColor),
+      )
           : Column(
+        children: [
+          // Monitoring Status Card
+          Container(
+            margin: EdgeInsets.all(16),
+            padding: EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: surfaceColor,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: widget.isDarkMode ? Colors.grey[700]! : Colors.grey[300]!,
+              ),
+            ),
+            child: Column(
               children: [
-                // Monitoring Status Card
-                Container(
-                  margin: EdgeInsets.all(16),
-                  padding: EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: surfaceColor,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: widget.isDarkMode ? Colors.grey[700]! : Colors.grey[300]!,
+                Row(
+                  children: [
+                    Icon(
+                      _isMonitoringEnabled ? Icons.security : Icons.security_outlined,
+                      color: _isMonitoringEnabled ? Colors.green : Colors.grey,
+                      size: 24,
                     ),
-                  ),
-                  child: Column(
-                    children: [
-                      Row(
+                    SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Icon(
-                            _isMonitoringEnabled ? Icons.security : Icons.security_outlined,
-                            color: _isMonitoringEnabled ? Colors.green : Colors.grey,
-                            size: 24,
-                          ),
-                          SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Location Monitoring',
-                                  style: TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold,
-                                    color: textColor,
-                                  ),
-                                ),
-                                Text(
-                                  _isMonitoringEnabled
-                                      ? 'Active - You\'ll see alerts when away from home'
-                                      : 'Disabled - No location alerts',
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    color: widget.isDarkMode ? Colors.grey[400] : Colors.grey[600],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          Switch(
-                            value: _isMonitoringEnabled,
-                            onChanged: _homeLocation != null ? (_) => _toggleLocationMonitoring() : null,
-                            activeColor: Colors.green,
-                          ),
-                        ],
-                      ),
-                      if (_homeLocation == null)
-                        Padding(
-                          padding: EdgeInsets.only(top: 8),
-                          child: Text(
-                            'Please set a home location first to enable monitoring',
+                          Text(
+                            'Location Monitoring',
                             style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.orange,
-                              fontStyle: FontStyle.italic,
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: textColor,
                             ),
                           ),
-                        ),
-                    ],
-                  ),
-                ),
-                
-                // Map
-                Expanded(
-                  child: GoogleMap(
-                    initialCameraPosition: CameraPosition(
-                      target: _currentLocation ?? LatLng(0, 0),
-                      zoom: 15,
-                    ),
-                    onMapCreated: (controller) => mapController = controller,
-                    markers: {
-                      if (_currentLocation != null)
-                        Marker(
-                          markerId: MarkerId('current'),
-                          position: _currentLocation!,
-                          icon: BitmapDescriptor.defaultMarkerWithHue(
-                              BitmapDescriptor.hueBlue),
-                          infoWindow: InfoWindow(title: 'Current Location'),
-                        ),
-                      if (_selectedLocation != null)
-                        Marker(
-                          markerId: MarkerId('selected'),
-                          position: _selectedLocation!,
-                          infoWindow: InfoWindow(title: 'Selected Location'),
-                        ),
-                      if (_homeLocation != null)
-                        Marker(
-                          markerId: MarkerId('home'),
-                          position: _homeLocation!,
-                          icon: BitmapDescriptor.defaultMarkerWithHue(
-                              BitmapDescriptor.hueGreen),
-                          infoWindow: InfoWindow(title: 'Home Location'),
-                        ),
-                    },
-                    circles: _homeLocation != null
-                        ? {
-                            Circle(
-                              circleId: CircleId('geofence'),
-                              center: _homeLocation!,
-                              radius: _geofenceRadius,
-                              fillColor: Colors.blue.withOpacity(0.1),
-                              strokeColor: Colors.blue,
-                              strokeWidth: 2,
-                            ),
-                          }
-                        : {},
-                    onTap: (LatLng location) {
-                      setState(() => _selectedLocation = location);
-                      _saveLocation(location);
-                    },
-                  ),
-                ),
-                
-                // Control Buttons
-                Container(
-                  color: surfaceColor,
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                        children: [
-                          Expanded(
-                            child: ElevatedButton.icon(
-                              onPressed: _getCurrentLocation,
-                              icon: Icon(Icons.my_location),
-                              label: Text('Current'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: primaryColor,
-                                foregroundColor: Colors.white,
-                              ),
-                            ),
-                          ),
-                          SizedBox(width: 8),
-                          Expanded(
-                            child: ElevatedButton.icon(
-                              onPressed: () {
-                                if (_selectedLocation != null &&
-                                    mapController != null) {
-                                  mapController!.animateCamera(
-                                    CameraUpdate.newLatLng(_selectedLocation!),
-                                  );
-                                }
-                              },
-                              icon: Icon(Icons.location_on),
-                              label: Text('Selected'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: widget.isDarkMode ? Colors.grey[700] : Colors.grey[300],
-                                foregroundColor: textColor,
-                              ),
+                          Text(
+                            _isMonitoringEnabled
+                                ? _isOutsideGeofence
+                                ? '🚨 ALERT: You are away from home!'
+                                : '✅ Active - Monitoring your location'
+                                : 'Disabled - No location alerts',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: _isMonitoringEnabled && _isOutsideGeofence
+                                  ? Colors.red
+                                  : widget.isDarkMode ? Colors.grey[400] : Colors.grey[600],
+                              fontWeight: _isMonitoringEnabled && _isOutsideGeofence
+                                  ? FontWeight.bold
+                                  : FontWeight.normal,
                             ),
                           ),
                         ],
                       ),
-                      SizedBox(height: 8),
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton.icon(
-                          onPressed: _selectedLocation != null ? _saveHomeLocation : null,
-                          icon: Icon(Icons.home),
-                          label: Text('Save as Home Location'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.green,
-                            foregroundColor: Colors.white,
-                            padding: EdgeInsets.symmetric(vertical: 12),
-                          ),
-                        ),
-                      ),
-                      if (_homeLocation != null && _isMonitoringEnabled)
-                        Padding(
-                          padding: EdgeInsets.only(top: 8),
-                          child: Text(
-                            '✓ Monitoring active - 100m geofence around home',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.green,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
+                    ),
+                    Switch(
+                      value: _isMonitoringEnabled,
+                      onChanged: _homeLocation != null ? (_) => _toggleLocationMonitoring() : null,
+                      activeColor: Colors.green,
+                    ),
+                  ],
                 ),
+                if (_homeLocation == null)
+                  Padding(
+                    padding: EdgeInsets.only(top: 8),
+                    child: Text(
+                      'Please set a home location first to enable monitoring',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.orange,
+                        fontStyle: FontStyle.italic,
+                      ),
+                    ),
+                  ),
               ],
             ),
+          ),
+
+          // Map
+          Expanded(
+            child: GoogleMap(
+              initialCameraPosition: CameraPosition(
+                target: _currentLocation ?? LatLng(0, 0),
+                zoom: 15,
+              ),
+              onMapCreated: (controller) => mapController = controller,
+              markers: {
+                if (_currentLocation != null)
+                  Marker(
+                    markerId: MarkerId('current'),
+                    position: _currentLocation!,
+                    icon: BitmapDescriptor.defaultMarkerWithHue(
+                        BitmapDescriptor.hueBlue),
+                    infoWindow: InfoWindow(title: 'Current Location'),
+                  ),
+                if (_selectedLocation != null)
+                  Marker(
+                    markerId: MarkerId('selected'),
+                    position: _selectedLocation!,
+                    infoWindow: InfoWindow(title: 'Selected Location'),
+                  ),
+                if (_homeLocation != null)
+                  Marker(
+                    markerId: MarkerId('home'),
+                    position: _homeLocation!,
+                    icon: BitmapDescriptor.defaultMarkerWithHue(
+                        BitmapDescriptor.hueGreen),
+                    infoWindow: InfoWindow(title: 'Home Location'),
+                  ),
+              },
+              circles: _homeLocation != null
+                  ? {
+                Circle(
+                  circleId: CircleId('geofence'),
+                  center: _homeLocation!,
+                  radius: _geofenceRadius,
+                  fillColor: _isOutsideGeofence
+                      ? Colors.red.withOpacity(0.1)
+                      : Colors.green.withOpacity(0.1),
+                  strokeColor: _isOutsideGeofence
+                      ? Colors.red
+                      : Colors.green,
+                  strokeWidth: 2,
+                ),
+              }
+                  : {},
+              onTap: (LatLng location) {
+                setState(() => _selectedLocation = location);
+                _saveLocation(location);
+              },
+            ),
+          ),
+
+          // Control Buttons
+          Container(
+            color: surfaceColor,
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: _getCurrentLocation,
+                        icon: Icon(Icons.my_location),
+                        label: Text('Current'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: primaryColor,
+                          foregroundColor: Colors.white,
+                        ),
+                      ),
+                    ),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: () {
+                          if (_selectedLocation != null &&
+                              mapController != null) {
+                            mapController!.animateCamera(
+                              CameraUpdate.newLatLng(_selectedLocation!),
+                            );
+                          }
+                        },
+                        icon: Icon(Icons.location_on),
+                        label: Text('Selected'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: widget.isDarkMode ? Colors.grey[700] : Colors.grey[300],
+                          foregroundColor: textColor,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: _selectedLocation != null ? _saveHomeLocation : null,
+                    icon: Icon(Icons.home),
+                    label: Text('Save as Home Location'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green,
+                      foregroundColor: Colors.white,
+                      padding: EdgeInsets.symmetric(vertical: 12),
+                    ),
+                  ),
+                ),
+                if (_homeLocation != null && _isMonitoringEnabled)
+                  Padding(
+                    padding: EdgeInsets.only(top: 8),
+                    child: Text(
+                      _isOutsideGeofence
+                          ? '🚨 OUTSIDE SAFE ZONE - 100m geofence'
+                          : '✅ INSIDE SAFE ZONE - 100m geofence active',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: _isOutsideGeofence ? Colors.red : Colors.green,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

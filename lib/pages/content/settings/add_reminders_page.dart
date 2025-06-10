@@ -244,9 +244,7 @@ class _AddRemindersPageState extends State<AddRemindersPage> {
       await _loadTasks();
 
       // Navigate to home page and back to refresh it
-      Navigator.pushReplacementNamed(context, '/home').then((_) {
-        Navigator.pushNamed(context, '/settings/add_reminders');
-      });
+
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Task saved successfully')),

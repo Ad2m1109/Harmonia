@@ -7,7 +7,8 @@ import 'pages/content/reminders_page.dart';
 import 'pages/content/journal_page.dart';
 import 'pages/content/profiles_page.dart';
 import 'pages/content/games_page.dart';
-import 'pages/content/settings/settings_page.dart';
+import 'package:harmonia/pages/content/settings/settings_page.dart' show SettingsPage;
+import 'package:harmonia/pages/content/settings/security_page.dart' show SecurityPage;
 import 'package:harmonia/pages/splash_screen.dart';
 import 'pages/content/chat_page.dart';
 import 'package:harmonia/pages/content/settings/password_page.dart';
@@ -15,7 +16,6 @@ import 'package:harmonia/pages/content/settings/profile_page.dart';
 import 'package:harmonia/pages/content/settings/add_reminders_page.dart';
 import 'package:harmonia/pages/content/settings/add_family_page.dart';
 import 'package:harmonia/pages/content/settings/about_us_page.dart';
-import 'package:harmonia/pages/content/settings/security_page.dart';
 
 void main() {
   runApp(const MyApp());
@@ -72,8 +72,7 @@ class _MyAppState extends State<MyApp> {
         '/settings/add_family': (context) =>
             AddFamilyPage(isDarkMode: _isDarkMode),
         '/settings/about': (context) => AboutUsPage(isDarkMode: _isDarkMode),
-        '/settings/security': (context) =>
-            SecurityPage(isDarkMode: _isDarkMode),
+        '/settings/security': (context) => SecurityPage(isDarkMode: _isDarkMode),
       },
     );
   }
