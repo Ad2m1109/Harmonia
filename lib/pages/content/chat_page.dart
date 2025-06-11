@@ -4,6 +4,9 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'package:csv/csv.dart';
+import 'package:speech_to_text/speech_to_text.dart' as stt;
+import 'package:flutter_tts/flutter_tts.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 class Event {
   String id;
@@ -23,22 +26,22 @@ class Event {
   });
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'name': name,
-        'date': date,
-        'description': description,
-        'voicePath': voicePath,
-        'imagePaths': imagePaths,
-      };
+    'id': id,
+    'name': name,
+    'date': date,
+    'description': description,
+    'voicePath': voicePath,
+    'imagePaths': imagePaths,
+  };
 
   factory Event.fromJson(Map<String, dynamic> json) => Event(
-        id: json['id'],
-        name: json['name'],
-        date: json['date'],
-        description: json['description'] ?? '',
-        voicePath: json['voicePath'],
-        imagePaths: List<String>.from(json['imagePaths'] ?? []),
-      );
+    id: json['id'],
+    name: json['name'],
+    date: json['date'],
+    description: json['description'] ?? '',
+    voicePath: json['voicePath'],
+    imagePaths: List<String>.from(json['imagePaths'] ?? []),
+  );
 }
 
 class ChatPage extends StatefulWidget {
@@ -52,6 +55,10 @@ class _ChatPageState extends State<ChatPage> {
   final List<ChatMessage> _messages = [];
   final TextEditingController _textController = TextEditingController();
   bool _isLoading = false;
+  late stt.SpeechToText _speech;
+  late FlutterTts _flutterTts;
+  bool _isListening = false;
+  String _recognizedText = '';
 
   // Profile data variables
   String? _firstName;
@@ -68,14 +75,36 @@ class _ChatPageState extends State<ChatPage> {
   List<Map<String, dynamic>> _familyMembers = [];
   List<String> _medications = [];
   List<String> _importantPlaces = [];
-  
-  // Events data
   List<Event> _events = [];
 
   @override
   void initState() {
     super.initState();
+    _speech = stt.SpeechToText();
+    _flutterTts = FlutterTts();
+    _initializeSpeech();
+    _initializeTts();
     _loadAllData();
+  }
+
+  Future<void> _initializeSpeech() async {
+    bool hasPermission = await _speech.initialize(
+      onStatus: (status) {
+        setState(() {
+          _isListening = status == 'listening';
+        });
+      },
+      onError: (error) => print('Speech recognition error: $error'),
+    );
+    if (!hasPermission) {
+      await Permission.microphone.request();
+    }
+  }
+
+  Future<void> _initializeTts() async {
+    await _flutterTts.setLanguage('en-US');
+    await _flutterTts.setSpeechRate(0.5);
+    await _flutterTts.setPitch(1.0);
   }
 
   Future<void> _loadAllData() async {
@@ -96,7 +125,7 @@ class _ChatPageState extends State<ChatPage> {
       if (await file.exists()) {
         final contents = await file.readAsString();
         List<List<dynamic>> csvTable =
-            const CsvToListConverter().convert(contents);
+        const CsvToListConverter().convert(contents);
         if (csvTable.isNotEmpty) {
           setState(() {
             _firstName = csvTable[0][0];
@@ -122,17 +151,17 @@ class _ChatPageState extends State<ChatPage> {
       if (await file.exists()) {
         final contents = await file.readAsString();
         List<List<dynamic>> csvTable =
-            const CsvToListConverter().convert(contents);
+        const CsvToListConverter().convert(contents);
         setState(() {
           _reminders = csvTable
               .map((row) => {
-                    'text': row[0],
-                    'date': DateTime.parse(row[1]),
-                    'time': row[2],
-                    'type': row[3],
-                    'audioPath': row[4],
-                    'isCompleted': row[5] == 'true',
-                  })
+            'text': row[0],
+            'date': DateTime.parse(row[1]),
+            'time': row[2],
+            'type': row[3],
+            'audioPath': row[4],
+            'isCompleted': row[5] == 'true',
+          })
               .toList();
         });
       }
@@ -149,15 +178,15 @@ class _ChatPageState extends State<ChatPage> {
       if (await file.exists()) {
         final contents = await file.readAsString();
         List<List<dynamic>> csvTable =
-            const CsvToListConverter().convert(contents);
+        const CsvToListConverter().convert(contents);
         setState(() {
           _familyMembers = csvTable
               .map((row) => {
-                    'name': row[0],
-                    'relation': row[1],
-                    'imagePath': row[2],
-                    'voicePath': row[3],
-                  })
+            'name': row[0],
+            'relation': row[1],
+            'imagePath': row[2],
+            'voicePath': row[3],
+          })
               .toList();
         });
       }
@@ -187,18 +216,65 @@ class _ChatPageState extends State<ChatPage> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final welcomeMessage = ChatMessage(
         text:
-            "Hello ${_firstName ?? 'there'}! I'm here to help you throughout your day. You can ask me about your personal information, family, medications, past events and memories, or anything else you need help remembering. How are you feeling today?",
+        "Hello ${_firstName ?? 'there'}! I'm here to help you throughout your day. You can ask me about your personal information, family, medications, past events and memories, or anything else you need help remembering. How are you feeling today?",
         isUser: false,
       );
       setState(() {
         _messages.insert(0, welcomeMessage);
       });
+      _speak(welcomeMessage.text);
     });
+  }
+
+  void _speak(String text) async {
+    await _flutterTts.stop(); // Stop any ongoing speech
+    await _flutterTts.speak(text);
+  }
+
+  void _startListening() async {
+    if (!_isListening) {
+      bool available = await _speech.initialize(
+        onStatus: (status) {
+          setState(() {
+            _isListening = status == 'listening';
+          });
+        },
+        onError: (error) {
+          print('Speech recognition error: $error');
+          setState(() {
+            _isListening = false;
+          });
+        },
+      );
+      if (available) {
+        setState(() => _isListening = true);
+        _speech.listen(
+          onResult: (result) {
+            setState(() {
+              _recognizedText = result.recognizedWords;
+              _textController.text = _recognizedText;
+              if (result.finalResult) {
+                _isListening = false;
+                if (_recognizedText.isNotEmpty) {
+                  _handleSubmitted(_recognizedText);
+                }
+              }
+            });
+          },
+        );
+      } else {
+        setState(() => _isListening = false);
+        await Permission.microphone.request();
+      }
+    } else {
+      setState(() => _isListening = false);
+      _speech.stop();
+    }
   }
 
   String _formatEventsForContext() {
     if (_events.isEmpty) return 'No events or memories recorded yet.';
-    
+
     return _events.map((event) {
       String eventInfo = '- ${event.name} (${event.date})';
       if (event.description.isNotEmpty) {
@@ -216,8 +292,7 @@ class _ChatPageState extends State<ChatPage> {
 
   String _getRecentEvents() {
     if (_events.isEmpty) return 'No recent events found.';
-    
-    // Sort events by date (most recent first) and take the last 5
+
     final sortedEvents = List<Event>.from(_events);
     sortedEvents.sort((a, b) {
       try {
@@ -228,14 +303,13 @@ class _ChatPageState extends State<ChatPage> {
         return 0;
       }
     });
-    
+
     final recentEvents = sortedEvents.take(5).toList();
     return recentEvents.map((event) => '${event.name} on ${event.date}').join(', ');
   }
 
-  // Enhanced Gemini API Integration with Alzheimer's specific context including events
   Future<String> _getGeminiResponse(String message) async {
-    const String apiKey = 'AIzaSyDzkJDsO8TT_RydVLlCKQCtaHn-nkOwUhs';
+    const String apiKey = 'AIzaSyAVRvg9CgENzVKqb4EkM1fECf8L9UkHckw'; // Replace with your actual API key
     final String url =
         'https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=$apiKey';
 
@@ -293,7 +367,7 @@ class _ChatPageState extends State<ChatPage> {
             }
           ],
           'generationConfig': {
-            'temperature': 0.3, // Lower temperature for more consistent responses
+            'temperature': 0.3,
             'maxOutputTokens': 800,
             'topK': 40,
             'topP': 0.95,
@@ -332,13 +406,11 @@ class _ChatPageState extends State<ChatPage> {
     _textController.clear();
     if (text.trim().isEmpty) return;
 
-    // Check for emergency keywords
     if (_isEmergencyMessage(text)) {
       _handleEmergencyResponse(text);
       return;
     }
 
-    // Add user message
     ChatMessage userMessage = ChatMessage(
       text: text,
       isUser: true,
@@ -349,10 +421,8 @@ class _ChatPageState extends State<ChatPage> {
       _isLoading = true;
     });
 
-    // Get AI response
     String botResponse = await _getGeminiResponse(text);
 
-    // Add bot message
     ChatMessage botMessage = ChatMessage(
       text: botResponse,
       isUser: false,
@@ -362,6 +432,9 @@ class _ChatPageState extends State<ChatPage> {
       _messages.insert(0, botMessage);
       _isLoading = false;
     });
+
+    // Speak the bot's response
+    _speak(botResponse);
   }
 
   bool _isEmergencyMessage(String message) {
@@ -394,7 +467,7 @@ class _ChatPageState extends State<ChatPage> {
     }
 
     emergencyResponse +=
-        "\n\nTake deep breaths. You are safe. If you need immediate help, call 911 or ask someone nearby to help you call your emergency contacts.";
+    "\n\nTake deep breaths. You are safe. If you need immediate help, call 911 or ask someone nearby to help you call your emergency contacts.";
 
     final emergencyMessage = ChatMessage(
       text: emergencyResponse,
@@ -405,6 +478,9 @@ class _ChatPageState extends State<ChatPage> {
     setState(() {
       _messages.insert(0, emergencyMessage);
     });
+
+    // Speak the emergency response
+    _speak(emergencyResponse);
   }
 
   void _showEventsDialog(BuildContext context) {
@@ -479,6 +555,8 @@ class _ChatPageState extends State<ChatPage> {
   @override
   void dispose() {
     _textController.dispose();
+    _speech.stop();
+    _flutterTts.stop();
     super.dispose();
   }
 
@@ -489,7 +567,7 @@ class _ChatPageState extends State<ChatPage> {
         title: Text(
           'Hello ${_firstName ?? 'Friend'}',
           style:
-              const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
         backgroundColor: const Color(0xFF87CEEB),
         elevation: 2,
@@ -512,7 +590,6 @@ class _ChatPageState extends State<ChatPage> {
       ),
       body: Column(
         children: [
-          // Quick action buttons
           Container(
             padding: const EdgeInsets.all(8.0),
             child: SingleChildScrollView(
@@ -533,37 +610,41 @@ class _ChatPageState extends State<ChatPage> {
           Expanded(
             child: _messages.isEmpty
                 ? Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(
-                          Icons.chat_bubble_outline,
-                          size: 64,
-                          color: Colors.grey,
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          'Hi ${_firstName ?? 'there'}! Ask me anything you need help remembering.',
-                          style: const TextStyle(
-                            fontSize: 18,
-                            color: Colors.grey,
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                      ],
-                    ),
-                  )
-                : ListView.builder(
-                    reverse: true,
-                    padding: const EdgeInsets.all(16.0),
-                    itemCount: _messages.length + (_isLoading ? 1 : 0),
-                    itemBuilder: (context, index) {
-                      if (index == 0 && _isLoading) {
-                        return const TypingIndicator();
-                      }
-                      return _messages[_isLoading ? index - 1 : index];
-                    },
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(
+                    Icons.chat_bubble_outline,
+                    size: 64,
+                    color: Colors.grey,
                   ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Hi ${_firstName ?? 'there'}! Ask me anything you need help remembering.',
+                    style: const TextStyle(
+                      fontSize: 18,
+                      color: Colors.grey,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
+            )
+                : ListView.builder(
+              reverse: true,
+              padding: const EdgeInsets.all(16.0),
+              itemCount: _messages.length + (_isLoading ? 1 : 0),
+              itemBuilder: (context, index) {
+                if (index == 0 && _isLoading) {
+                  return const TypingIndicator();
+                }
+                final message = _messages[_isLoading ? index - 1 : index];
+                return GestureDetector(
+                  onTap: () => _speak(message.text),
+                  child: message,
+                );
+              },
+            ),
           ),
           Container(
             decoration: BoxDecoration(
@@ -634,19 +715,33 @@ class _ChatPageState extends State<ChatPage> {
           const SizedBox(width: 12.0),
           Container(
             decoration: BoxDecoration(
+              color: _isListening ? Colors.red : const Color(0xFF87CEEB),
+              shape: BoxShape.circle,
+            ),
+            child: IconButton(
+              icon: Icon(
+                _isListening ? Icons.mic : Icons.mic_none,
+                color: Colors.white,
+              ),
+              onPressed: _startListening,
+            ),
+          ),
+          const SizedBox(width: 12.0),
+          Container(
+            decoration: BoxDecoration(
               color: _isLoading ? Colors.grey : const Color(0xFF87CEEB),
               shape: BoxShape.circle,
             ),
             child: IconButton(
               icon: _isLoading
                   ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                      ),
-                    )
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                ),
+              )
                   : const Icon(Icons.send, color: Colors.white),
               onPressed: _isLoading
                   ? null
@@ -673,7 +768,7 @@ class _ChatPageState extends State<ChatPage> {
                   const Text('No emergency contacts available.')
                 else
                   ..._emergencyContacts.entries.map(
-                    (contact) => Padding(
+                        (contact) => Padding(
                       padding: const EdgeInsets.symmetric(vertical: 4),
                       child: Row(
                         children: [
@@ -698,7 +793,7 @@ class _ChatPageState extends State<ChatPage> {
                 const Text(
                   'In case of emergency, dial 911',
                   style:
-                      TextStyle(fontWeight: FontWeight.bold, color: Colors.red),
+                  TextStyle(fontWeight: FontWeight.bold, color: Colors.red),
                 ),
               ],
             ),
@@ -905,8 +1000,8 @@ class _TypingIndicatorState extends State<TypingIndicator>
                           margin: const EdgeInsets.symmetric(horizontal: 1),
                           child: Opacity(
                             opacity:
-                                (_animationController.value + index * 0.3) %
-                                    1.0,
+                            (_animationController.value + index * 0.3) %
+                                1.0,
                             child: const Text(
                               '●',
                               style: TextStyle(color: Color(0xFF87CEEB)),
@@ -944,13 +1039,13 @@ class ChatMessage extends StatelessWidget {
       margin: const EdgeInsets.symmetric(vertical: 8.0),
       child: Row(
         mainAxisAlignment:
-            isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
+        isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (!isUser) ...[
             CircleAvatar(
               backgroundColor:
-                  isEmergency ? Colors.red : const Color(0xFF87CEEB),
+              isEmergency ? Colors.red : const Color(0xFF87CEEB),
               child: Icon(
                 isEmergency ? Icons.emergency : Icons.assistant,
                 color: Colors.white,

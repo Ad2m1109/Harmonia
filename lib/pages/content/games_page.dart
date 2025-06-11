@@ -6,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:async';
+import 'package:flutter_tts/flutter_tts.dart';
 
 class Event {
   String id;
@@ -119,20 +120,17 @@ class _GamesPageState extends State<GamesPage> with TickerProviderStateMixin {
   bool _showResult = false;
   bool _isCorrect = false;
   String _currentFeedback = '';
-  String _difficultyLevel = 'easy'; // Automatically managed
+  String _difficultyLevel = 'easy';
   int _streakCount = 0;
-  int _correctAnswersInLevel = 0; // Track progress within current level
+  int _correctAnswersInLevel = 0;
   bool _isLoading = false;
   bool _isProcessingAnswer = false;
-
-  // Track recent questions to avoid repetition
   List<String> _recentQuestions = [];
+  late FlutterTts _flutterTts;
 
-  // Automatic difficulty progression thresholds
-  static const int ANSWERS_TO_ADVANCE = 3; // Correct answers needed to advance level
-  static const int STREAK_TO_ADVANCE = 2; // Consecutive correct answers to advance
+  static const int ANSWERS_TO_ADVANCE = 3;
+  static const int STREAK_TO_ADVANCE = 2;
 
-  // Motivation system
   final List<String> _motivationalMessages = [
     "🌟 Your memories are precious treasures waiting to be discovered!",
     "💪 Every question you answer strengthens your mind!",
@@ -146,7 +144,6 @@ class _GamesPageState extends State<GamesPage> with TickerProviderStateMixin {
     "🔥 Your determination is inspiring!",
   ];
 
-  // Animation controllers
   late AnimationController _questionAnimationController;
   late AnimationController _feedbackAnimationController;
   late AnimationController _motivationAnimationController;
@@ -158,8 +155,21 @@ class _GamesPageState extends State<GamesPage> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
+    _flutterTts = FlutterTts();
+    _initializeTts();
     _initializeAnimations();
     _loadData();
+  }
+
+  Future<void> _initializeTts() async {
+    await _flutterTts.setLanguage('en-US');
+    await _flutterTts.setSpeechRate(0.5);
+    await _flutterTts.setPitch(1.0);
+  }
+
+  void _speak(String text) async {
+    await _flutterTts.stop();
+    await _flutterTts.speak(text);
   }
 
   void _initializeAnimations() {
@@ -216,6 +226,7 @@ class _GamesPageState extends State<GamesPage> with TickerProviderStateMixin {
     _questionAnimationController.dispose();
     _feedbackAnimationController.dispose();
     _motivationAnimationController.dispose();
+    _flutterTts.stop();
     super.dispose();
   }
 
@@ -239,7 +250,6 @@ class _GamesPageState extends State<GamesPage> with TickerProviderStateMixin {
         List<List<dynamic>> csvTable =
         const CsvToListConverter().convert(contents);
 
-        // Skip header row if it exists
         if (csvTable.isNotEmpty && csvTable[0].contains('Timestamp')) {
           csvTable.removeAt(0);
         }
@@ -274,7 +284,6 @@ class _GamesPageState extends State<GamesPage> with TickerProviderStateMixin {
       bool fileExists = await file.exists();
       List<List<dynamic>> rows = [];
 
-      // If file exists, read existing data
       if (fileExists) {
         final contents = await file.readAsString();
         if (contents.isNotEmpty) {
@@ -282,19 +291,15 @@ class _GamesPageState extends State<GamesPage> with TickerProviderStateMixin {
         }
       }
 
-      // Add header if file is new or empty
       if (rows.isEmpty) {
         rows.add(GameEntry.csvHeaders);
       }
 
-      // Add new entry
       rows.add(entry.toCsvRow());
 
-      // Convert to CSV and save
       String csv = const ListToCsvConverter().convert(rows);
       await file.writeAsString(csv);
 
-      // Add to local list
       _gameEntries.add(entry);
 
       print('Game entry saved successfully');
@@ -401,14 +406,15 @@ class _GamesPageState extends State<GamesPage> with TickerProviderStateMixin {
         _isLoading = false;
       });
 
-      // Add current question to recent questions list (keep last 5 questions)
       _recentQuestions.add(_currentQuestion);
       if (_recentQuestions.length > 5) {
         _recentQuestions.removeAt(0);
       }
 
-      // Start question animation
       _questionAnimationController.forward();
+
+      // Speak the question
+      _speak(_currentQuestion);
     } catch (e) {
       print('Error generating question: $e');
       setState(() {
@@ -418,11 +424,12 @@ class _GamesPageState extends State<GamesPage> with TickerProviderStateMixin {
         _options = [];
         _isLoading = false;
       });
+      _speak(_currentQuestion);
     }
   }
 
   Future<Map<String, dynamic>> _getQuestionFromAPI() async {
-    const String apiKey = 'AIzaSyDzkJDsO8TT_RydVLlCKQCtaHn-nkOwUhs';
+    const String apiKey = 'AIzaSyAVRvg9CgENzVKqb4EkM1fECf8L9UkHckw'; // Replace with your actual API key
     final String url =
         'https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=$apiKey';
 
@@ -498,7 +505,6 @@ class _GamesPageState extends State<GamesPage> with TickerProviderStateMixin {
           final responseText =
           data['candidates'][0]['content']['parts'][0]['text'];
 
-          // Find JSON in the response
           final jsonStart = responseText.indexOf('{');
           final jsonEnd = responseText.lastIndexOf('}') + 1;
 
@@ -506,7 +512,6 @@ class _GamesPageState extends State<GamesPage> with TickerProviderStateMixin {
             final jsonStr = responseText.substring(jsonStart, jsonEnd);
             final questionData = jsonDecode(jsonStr);
 
-            // Validate the response has required fields
             if (questionData['question'] != null &&
                 questionData['correct_answer'] != null &&
                 questionData['options'] != null &&
@@ -525,15 +530,13 @@ class _GamesPageState extends State<GamesPage> with TickerProviderStateMixin {
 
   Future<String> _getResponseForAnswer(
       bool isCorrect, String explanation) async {
-    const String apiKey = 'AIzaSyDzkJDsO8TT_RydVLlCKQCtaHn-nkOwUhs';
+    const String apiKey = 'YOUR_API_KEY_HERE'; // Replace with your actual API key
     final String url =
         'https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=$apiKey';
 
-    // Add a random motivational message
     final String motivation =
     _motivationalMessages[Random().nextInt(_motivationalMessages.length)];
 
-    // Check if level advancement occurred
     String levelAdvancementMessage = '';
     if (isCorrect && _correctAnswersInLevel + 1 >= ANSWERS_TO_ADVANCE && _difficultyLevel != 'hard') {
       levelAdvancementMessage = ' 🎉 Congratulations! You\'re ready for the next level!';
@@ -627,7 +630,9 @@ class _GamesPageState extends State<GamesPage> with TickerProviderStateMixin {
           _currentFeedback = response;
         });
 
-        // Save game entry to CSV
+        // Speak the feedback
+        _speak(_currentFeedback);
+
         final gameEntry = GameEntry(
           timestamp: DateTime.now(),
           question: _currentQuestion,
@@ -643,7 +648,6 @@ class _GamesPageState extends State<GamesPage> with TickerProviderStateMixin {
 
         await _saveGameEntry(gameEntry);
 
-        // Calculate delay based on feedback length (minimum 3 seconds, maximum 6 seconds)
         final delay =
         Duration(milliseconds: min(6000, max(3000, response.length * 50)));
 
@@ -668,28 +672,25 @@ class _GamesPageState extends State<GamesPage> with TickerProviderStateMixin {
   }
 
   void _autoAdjustDifficulty() {
-    // Automatic difficulty progression logic
     if (_isCorrect) {
-      // Advance difficulty if enough correct answers and good streak
       if (_correctAnswersInLevel >= ANSWERS_TO_ADVANCE && _streakCount >= STREAK_TO_ADVANCE) {
         if (_difficultyLevel == 'easy') {
           setState(() {
             _difficultyLevel = 'medium';
             _correctAnswersInLevel = 0;
-            _recentQuestions.clear(); // Clear recent questions for new level
+            _recentQuestions.clear();
           });
           _showLevelUpMessage('Medium');
         } else if (_difficultyLevel == 'medium') {
           setState(() {
             _difficultyLevel = 'hard';
             _correctAnswersInLevel = 0;
-            _recentQuestions.clear(); // Clear recent questions for new level
+            _recentQuestions.clear();
           });
           _showLevelUpMessage('Hard');
         }
       }
     } else {
-      // Consider dropping difficulty if struggling
       double recentSuccessRate = _totalQuestions > 4 ? _score / _totalQuestions : 1.0;
 
       if (recentSuccessRate < 0.3 && _streakCount == 0) {
@@ -697,13 +698,13 @@ class _GamesPageState extends State<GamesPage> with TickerProviderStateMixin {
           setState(() {
             _difficultyLevel = 'medium';
             _correctAnswersInLevel = 0;
-            _recentQuestions.clear(); // Clear recent questions for level adjustment
+            _recentQuestions.clear();
           });
         } else if (_difficultyLevel == 'medium' && _totalQuestions > 8) {
           setState(() {
             _difficultyLevel = 'easy';
             _correctAnswersInLevel = 0;
-            _recentQuestions.clear(); // Clear recent questions for level adjustment
+            _recentQuestions.clear();
           });
         }
       }
@@ -718,6 +719,7 @@ class _GamesPageState extends State<GamesPage> with TickerProviderStateMixin {
         duration: const Duration(seconds: 3),
       ),
     );
+    _speak('Congratulations! You’ve leveled up to $newLevel level!');
   }
 
   void _loadNextQuestion() {
@@ -814,7 +816,6 @@ class _GamesPageState extends State<GamesPage> with TickerProviderStateMixin {
             ],
           ),
           const SizedBox(height: 12),
-          // Overall success rate
           LinearProgressIndicator(
             value: successRate,
             backgroundColor: widget.isDarkMode ? Colors.grey[700] : Colors.grey.shade300,
@@ -827,7 +828,6 @@ class _GamesPageState extends State<GamesPage> with TickerProviderStateMixin {
             ),
           ),
           const SizedBox(height: 8),
-          // Level progress
           if (_difficultyLevel != 'hard')
             Column(
               children: [
@@ -944,23 +944,26 @@ class _GamesPageState extends State<GamesPage> with TickerProviderStateMixin {
                   else
                     FadeTransition(
                       opacity: _questionFadeAnimation,
-                      child: Container(
-                        padding: const EdgeInsets.all(20),
-                        decoration: BoxDecoration(
-                          color: surfaceColor,
-                          borderRadius: BorderRadius.circular(15),
-                          border: Border.all(
-                            color: borderColor!,
+                      child: GestureDetector(
+                        onTap: () => _speak(_currentQuestion),
+                        child: Container(
+                          padding: const EdgeInsets.all(20),
+                          decoration: BoxDecoration(
+                            color: surfaceColor,
+                            borderRadius: BorderRadius.circular(15),
+                            border: Border.all(
+                              color: borderColor!,
+                            ),
                           ),
-                        ),
-                        child: Text(
-                          _currentQuestion,
-                          style: TextStyle(
-                            fontSize: 22,
-                            fontWeight: FontWeight.bold,
-                            color: textColor,
+                          child: Text(
+                            _currentQuestion,
+                            style: TextStyle(
+                              fontSize: 22,
+                              fontWeight: FontWeight.bold,
+                              color: textColor,
+                            ),
+                            textAlign: TextAlign.center,
                           ),
-                          textAlign: TextAlign.center,
                         ),
                       ),
                     ),
@@ -1034,39 +1037,42 @@ class _GamesPageState extends State<GamesPage> with TickerProviderStateMixin {
                   if (_showResult)
                     ScaleTransition(
                       scale: _feedbackScaleAnimation,
-                      child: Container(
-                        padding: const EdgeInsets.all(20),
-                        margin: const EdgeInsets.only(top: 20),
-                        decoration: BoxDecoration(
-                          color: _isCorrect
-                              ? (widget.isDarkMode ? Colors.green.shade900 : Colors.green.shade50)
-                              : (widget.isDarkMode ? Colors.blue.shade900 : Colors.blue.shade50),
-                          borderRadius: BorderRadius.circular(15),
-                          border: Border.all(
-                            color: _isCorrect ? Colors.green : Colors.blue,
-                            width: 2,
-                          ),
-                        ),
-                        child: Column(
-                          children: [
-                            Icon(
-                              _isCorrect ? Icons.celebration : Icons.favorite,
-                              size: 40,
+                      child: GestureDetector(
+                        onTap: () => _speak(_currentFeedback),
+                        child: Container(
+                          padding: const EdgeInsets.all(20),
+                          margin: const EdgeInsets.only(top: 20),
+                          decoration: BoxDecoration(
+                            color: _isCorrect
+                                ? (widget.isDarkMode ? Colors.green.shade900 : Colors.green.shade50)
+                                : (widget.isDarkMode ? Colors.blue.shade900 : Colors.blue.shade50),
+                            borderRadius: BorderRadius.circular(15),
+                            border: Border.all(
                               color: _isCorrect ? Colors.green : Colors.blue,
+                              width: 2,
                             ),
-                            const SizedBox(height: 12),
-                            Text(
-                              _currentFeedback,
-                              style: TextStyle(
-                                fontSize: 18,
-                                color: _isCorrect
-                                    ? (widget.isDarkMode ? Colors.green.shade300 : Colors.green.shade800)
-                                    : (widget.isDarkMode ? Colors.blue.shade300 : Colors.blue.shade800),
-                                fontWeight: FontWeight.w600,
+                          ),
+                          child: Column(
+                            children: [
+                              Icon(
+                                _isCorrect ? Icons.celebration : Icons.favorite,
+                                size: 40,
+                                color: _isCorrect ? Colors.green : Colors.blue,
                               ),
-                              textAlign: TextAlign.center,
-                            ),
-                          ],
+                              const SizedBox(height: 12),
+                              Text(
+                                _currentFeedback,
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  color: _isCorrect
+                                      ? (widget.isDarkMode ? Colors.green.shade300 : Colors.green.shade800)
+                                      : (widget.isDarkMode ? Colors.blue.shade300 : Colors.blue.shade800),
+                                  fontWeight: FontWeight.w600,
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),

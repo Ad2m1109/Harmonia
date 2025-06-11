@@ -19,16 +19,17 @@ import 'package:harmonia/pages/content/settings/about_us_page.dart';
 import 'package:harmonia/pages/content/settings/security_page.dart';
 import 'package:timezone/data/latest.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
-// UPDATED: Changed from hourly_notification_service to enhanced_notification_service
+// UPDATED: Using the enhanced hourly notification service
 import 'services/hourly_notification_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  // Initialize timezone for Tunisia
   tz.initializeTimeZones();
   tz.setLocalLocation(tz.getLocation('Africa/Tunis'));
 
-  // UPDATED: Using EnhancedNotificationService instead of HourlyNotificationService
+  // UPDATED: Initialize the reliable hourly notification service
   await EnhancedNotificationService.initialize();
 
   runApp(const MyApp());
@@ -48,7 +49,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _initialize10MinuteNotifications();
+    _initializeHourlyNotifications();
   }
 
   @override
@@ -63,58 +64,123 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
 
     switch (state) {
       case AppLifecycleState.resumed:
-        print('📱 App resumed - checking 10-minute notifications...');
-        _checkAndReschedule10MinuteNotifications();
+        print('📱 App resumed - checking hourly notifications...');
+        _checkAndRescheduleHourlyNotifications();
         break;
       case AppLifecycleState.paused:
-        print('📱 App paused - ensuring 10-minute notifications are scheduled...');
-        _ensure10MinuteNotificationsScheduled();
+        print('📱 App paused - ensuring hourly notifications are active...');
+        _ensureHourlyNotificationsScheduled();
         break;
       case AppLifecycleState.detached:
-        print('📱 App detached - final 10-minute notification check...');
-        _ensure10MinuteNotificationsScheduled();
+        print('📱 App detached - final hourly notification check...');
+        _ensureHourlyNotificationsScheduled();
+        break;
+      case AppLifecycleState.inactive:
+        print('📱 App inactive - maintaining hourly notifications...');
         break;
       default:
         break;
     }
   }
 
-  // UPDATED: Renamed and using EnhancedNotificationService
-  Future<void> _initialize10MinuteNotifications() async {
+  // UPDATED: Initialize reliable hourly wellness notifications
+  Future<void> _initializeHourlyNotifications() async {
     try {
-      print('🔧 Initializing 10-minute wellness notifications...');
-      await Future.delayed(const Duration(seconds: 2));
+      print('🔧 Initializing hourly wellness notifications...');
+
+      // Wait a moment for the app to fully initialize
+      await Future.delayed(const Duration(seconds: 3));
+
+      // Check if notifications need rescheduling
       await EnhancedNotificationService.checkAndRescheduleIfNeeded();
 
-      // Enable 10-minute notifications by default
-      await EnhancedNotificationService.set10MinuteNotifications(true);
+      // Enable hourly notifications by default for wellness routine
+      await EnhancedNotificationService.setHourlyNotifications(true);
 
-      print('✅ 10-minute notifications initialized successfully');
-    } catch (e) {
-      print('❌ Error initializing 10-minute notifications: $e');
-    }
-  }
+      // Schedule a quick test (optional - remove in production)
+      // await EnhancedNotificationService.scheduleQuickTest();
 
-  // UPDATED: Using EnhancedNotificationService
-  Future<void> _checkAndReschedule10MinuteNotifications() async {
-    try {
-      await EnhancedNotificationService.checkAndRescheduleIfNeeded();
+      print('✅ Hourly wellness notifications initialized successfully');
 
-      // Get notification stats
+      // Show initialization stats
       final stats = await EnhancedNotificationService.getNotificationStats();
-      print('📊 Notification stats: ${stats['tenMinute']} active 10-minute notifications');
+      print('📊 Notification stats: ${stats['hourly']} hourly notifications active');
+
     } catch (e) {
-      print('❌ Error checking 10-minute notifications: $e');
+      print('❌ Error initializing hourly notifications: $e');
+      // Retry initialization after a delay
+      Future.delayed(const Duration(seconds: 5), () {
+        _initializeHourlyNotifications();
+      });
     }
   }
 
-  // UPDATED: Using EnhancedNotificationService
-  Future<void> _ensure10MinuteNotificationsScheduled() async {
+  // UPDATED: Check and reschedule hourly notifications when app resumes
+  Future<void> _checkAndRescheduleHourlyNotifications() async {
     try {
-      await EnhancedNotificationService.reschedule10MinuteNotifications();
-      print('🔄 10-minute notifications rescheduled for background delivery');
+      print('🔄 Checking hourly notification status...');
+
+      await EnhancedNotificationService.checkAndRescheduleIfNeeded();
+
+      // Get updated notification stats
+      final stats = await EnhancedNotificationService.getNotificationStats();
+      print('📊 Current notification stats:');
+      print('   📅 Hourly notifications: ${stats['hourly']}');
+      print('   ⏰ Quick reminders: ${stats['quickReminders']}');
+      print('   📋 Total pending: ${stats['total']}');
+
+      // If we have very few notifications, force reschedule
+      if (stats['hourly']! < 12) {
+        print('⚠️ Low notification count detected, force rescheduling...');
+        await EnhancedNotificationService.rescheduleHourlyNotifications();
+      }
+
     } catch (e) {
-      print('❌ Error ensuring 10-minute notifications: $e');
+      print('❌ Error checking hourly notifications: $e');
+    }
+  }
+
+  // UPDATED: Ensure hourly notifications are scheduled when app goes to background
+  Future<void> _ensureHourlyNotificationsScheduled() async {
+    try {
+      print('🔄 Ensuring hourly notifications are scheduled for background...');
+
+      // Double-check that notifications are properly scheduled
+      final stats = await EnhancedNotificationService.getNotificationStats();
+
+      if (stats['hourly']! == 0) {
+        print('⚠️ No hourly notifications found! Rescheduling immediately...');
+        await EnhancedNotificationService.rescheduleHourlyNotifications();
+      } else {
+        print('✅ ${stats['hourly']} hourly notifications are active for background delivery');
+      }
+
+    } catch (e) {
+      print('❌ Error ensuring hourly notifications: $e');
+      // Force reschedule on error
+      try {
+        await EnhancedNotificationService.rescheduleHourlyNotifications();
+      } catch (retryError) {
+        print('❌ Failed to reschedule on retry: $retryError');
+      }
+    }
+  }
+
+  // Method to manually trigger notification test (you can call this from settings)
+  Future<void> testNotificationSystem() async {
+    try {
+      print('🧪 Testing notification system...');
+      await EnhancedNotificationService.scheduleQuickTest();
+
+      // Show user feedback
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('🧪 Test notification scheduled for 2 minutes! Close the app to test background delivery.'),
+          duration: Duration(seconds: 4),
+        ),
+      );
+    } catch (e) {
+      print('❌ Error testing notifications: $e');
     }
   }
 
@@ -136,7 +202,11 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
         ),
         useMaterial3: true,
       ),
-      home: AppInitializer(toggleTheme: toggleTheme, isDarkMode: _isDarkMode),
+      home: AppInitializer(
+        toggleTheme: toggleTheme,
+        isDarkMode: _isDarkMode,
+        testNotifications: testNotificationSystem, // Pass test function
+      ),
       routes: {
         '/splash': (context) => const SplashScreen(),
         '/welcome': (context) => const WelcomePage(),
@@ -176,11 +246,13 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
 class AppInitializer extends StatefulWidget {
   final Function toggleTheme;
   final bool isDarkMode;
+  final Function? testNotifications; // Optional test function
 
   const AppInitializer({
     super.key,
     required this.toggleTheme,
     required this.isDarkMode,
+    this.testNotifications,
   });
 
   @override
@@ -198,21 +270,44 @@ class _AppInitializerState extends State<AppInitializer> {
   }
 
   Future<void> _checkFirstLaunch() async {
-    SharedPreferences prefs = await SharedPreferences.getInstance();
-    bool isFirstLaunch = prefs.getBool('first_launch') ?? true;
+    try {
+      SharedPreferences prefs = await SharedPreferences.getInstance();
+      bool isFirstLaunch = prefs.getBool('first_launch') ?? true;
 
-    setState(() {
-      _isFirstLaunch = isFirstLaunch;
-      _isLoading = false;
-    });
+      // If it's first launch, set up notifications
+      if (isFirstLaunch) {
+        print('🎯 First launch detected - setting up hourly notifications...');
+        await EnhancedNotificationService.setHourlyNotifications(true);
+        await prefs.setBool('first_launch', false);
+      }
+
+      setState(() {
+        _isFirstLaunch = isFirstLaunch;
+        _isLoading = false;
+      });
+
+    } catch (e) {
+      print('❌ Error checking first launch: $e');
+      setState(() {
+        _isLoading = false;
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return const Scaffold(
-        body: Center(
-          child: CircularProgressIndicator(),
+      return Scaffold(
+        backgroundColor: widget.isDarkMode ? Colors.black : Colors.white,
+        body: const Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(height: 16),
+              Text('🔧 Setting up hourly wellness notifications...'),
+            ],
+          ),
         ),
       );
     }

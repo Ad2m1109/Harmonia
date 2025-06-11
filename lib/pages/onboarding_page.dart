@@ -37,7 +37,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
                 Image.asset('assets/4.png', fit: BoxFit.cover),
                 Image.asset('assets/5.png', fit: BoxFit.cover),
                 Image.asset('assets/6.png', fit: BoxFit.cover),
-                Image.asset('assets/7.png', fit: BoxFit.cover),
+                Image.asset('assets/7.jpg', fit: BoxFit.cover),
               ],
             ),
           ),
