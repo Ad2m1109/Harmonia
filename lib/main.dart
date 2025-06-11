@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:harmonia/pages/content/settings/daily_files_page.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:harmonia/pages/welcome_page.dart';
 import 'package:harmonia/pages/onboarding_page.dart';
@@ -18,18 +19,17 @@ import 'package:harmonia/pages/content/settings/about_us_page.dart';
 import 'package:harmonia/pages/content/settings/security_page.dart';
 import 'package:timezone/data/latest.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
-// Import the hourly notification service
+// UPDATED: Changed from hourly_notification_service to enhanced_notification_service
 import 'services/hourly_notification_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize timezone for notifications
   tz.initializeTimeZones();
-  tz.setLocalLocation(tz.getLocation('Africa/Tunis')); // Set your timezone (Tunisia)
+  tz.setLocalLocation(tz.getLocation('Africa/Tunis'));
 
-  // Initialize hourly notification service
-  await HourlyNotificationService.initialize();
+  // UPDATED: Using EnhancedNotificationService instead of HourlyNotificationService
+  await EnhancedNotificationService.initialize();
 
   runApp(const MyApp());
 }
@@ -48,7 +48,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _initializeHourlyNotifications();
+    _initialize10MinuteNotifications();
   }
 
   @override
@@ -57,54 +57,64 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     super.dispose();
   }
 
-  // Handle app lifecycle changes
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
 
     switch (state) {
       case AppLifecycleState.resumed:
-      // App is in foreground - check and reschedule if needed
-        _checkAndRescheduleNotifications();
+        print('📱 App resumed - checking 10-minute notifications...');
+        _checkAndReschedule10MinuteNotifications();
         break;
       case AppLifecycleState.paused:
-      // App is in background - ensure notifications are scheduled
-        _ensureNotificationsScheduled();
+        print('📱 App paused - ensuring 10-minute notifications are scheduled...');
+        _ensure10MinuteNotificationsScheduled();
         break;
       case AppLifecycleState.detached:
-      // App is being terminated - final notification scheduling
-        _ensureNotificationsScheduled();
+        print('📱 App detached - final 10-minute notification check...');
+        _ensure10MinuteNotificationsScheduled();
         break;
       default:
         break;
     }
   }
 
-  // Initialize hourly notifications when app starts
-  Future<void> _initializeHourlyNotifications() async {
+  // UPDATED: Renamed and using EnhancedNotificationService
+  Future<void> _initialize10MinuteNotifications() async {
     try {
-      await Future.delayed(const Duration(seconds: 2)); // Wait for app to fully load
-      await HourlyNotificationService.checkAndRescheduleIfNeeded();
+      print('🔧 Initializing 10-minute wellness notifications...');
+      await Future.delayed(const Duration(seconds: 2));
+      await EnhancedNotificationService.checkAndRescheduleIfNeeded();
+
+      // Enable 10-minute notifications by default
+      await EnhancedNotificationService.set10MinuteNotifications(true);
+
+      print('✅ 10-minute notifications initialized successfully');
     } catch (e) {
-      print('Error initializing hourly notifications: $e');
+      print('❌ Error initializing 10-minute notifications: $e');
     }
   }
 
-  // Check and reschedule notifications when app comes to foreground
-  Future<void> _checkAndRescheduleNotifications() async {
+  // UPDATED: Using EnhancedNotificationService
+  Future<void> _checkAndReschedule10MinuteNotifications() async {
     try {
-      await HourlyNotificationService.checkAndRescheduleIfNeeded();
+      await EnhancedNotificationService.checkAndRescheduleIfNeeded();
+
+      // Get notification stats
+      final stats = await EnhancedNotificationService.getNotificationStats();
+      print('📊 Notification stats: ${stats['tenMinute']} active 10-minute notifications');
     } catch (e) {
-      print('Error checking notifications: $e');
+      print('❌ Error checking 10-minute notifications: $e');
     }
   }
 
-  // Ensure notifications are scheduled when app goes to background
-  Future<void> _ensureNotificationsScheduled() async {
+  // UPDATED: Using EnhancedNotificationService
+  Future<void> _ensure10MinuteNotificationsScheduled() async {
     try {
-      await HourlyNotificationService.rescheduleHourlyNotifications();
+      await EnhancedNotificationService.reschedule10MinuteNotifications();
+      print('🔄 10-minute notifications rescheduled for background delivery');
     } catch (e) {
-      print('Error ensuring notifications: $e');
+      print('❌ Error ensuring 10-minute notifications: $e');
     }
   }
 
@@ -136,6 +146,13 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
           isDarkMode: _isDarkMode,
         ),
         '/journal': (context) => const JournalPage(),
+        '/settings/daily_files': (context) {
+          final args = ModalRoute.of(context)!.settings.arguments as Map?;
+          return DailyFilesPage(
+            entries: args?['entries'] ?? [],
+            isDarkMode: args?['isDarkMode'] ?? _isDarkMode,
+          );
+        },
         '/settings': (context) => SettingsPage(isDarkMode: _isDarkMode),
         '/reminders': (context) => const RemindersPage(),
         '/profiles': (context) => ProfilesPage(isDarkMode: _isDarkMode),
@@ -200,7 +217,6 @@ class _AppInitializerState extends State<AppInitializer> {
       );
     }
 
-    // Always show splash screen first, but handle navigation differently based on first launch
     return const SplashScreen();
   }
 }

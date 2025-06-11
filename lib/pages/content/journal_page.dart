@@ -48,7 +48,7 @@ class _JournalPageState extends State<JournalPage> {
       if (await file.exists()) {
         final contents = await file.readAsString();
         List<List<dynamic>> csvTable =
-            const CsvToListConverter().convert(contents);
+        const CsvToListConverter().convert(contents);
 
         setState(() {
           _entries = csvTable.map((row) {
@@ -73,11 +73,11 @@ class _JournalPageState extends State<JournalPage> {
 
       List<List<dynamic>> rows = _entries
           .map((entry) => [
-                entry.content,
-                entry.date.toIso8601String(),
-                entry.isVoice.toString(),
-                entry.audioPath ?? '',
-              ])
+        entry.content,
+        entry.date.toIso8601String(),
+        entry.isVoice.toString(),
+        entry.audioPath ?? '',
+      ])
           .toList();
 
       String csv = const ListToCsvConverter().convert(rows);
@@ -382,16 +382,22 @@ class _JournalPageState extends State<JournalPage> {
             ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16.0),
-            child: ElevatedButton(
-              onPressed: _addTextEntry,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Color(0xFF4A9B8E),
-                minimumSize: Size(double.infinity, 50),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(15),
+            child: Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: _addTextEntry,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Color(0xFF4A9B8E),
+                      minimumSize: Size(0, 50),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(15),
+                      ),
+                    ),
+                    child: Text('Save Text'),
+                  ),
                 ),
-              ),
-              child: Text('Save Text'),
+              ],
             ),
           ),
           SizedBox(height: 16),
@@ -424,9 +430,9 @@ class _JournalPageState extends State<JournalPage> {
                     ),
                     trailing: entry.isVoice
                         ? IconButton(
-                            icon: Icon(Icons.play_arrow),
-                            onPressed: () => _playRecording(entry.audioPath!),
-                          )
+                      icon: Icon(Icons.play_arrow),
+                      onPressed: () => _playRecording(entry.audioPath!),
+                    )
                         : null,
                     onLongPress: () =>
                         _showEntryOptions(_entries.length - 1 - index),

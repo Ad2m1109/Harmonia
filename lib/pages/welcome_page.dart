@@ -36,35 +36,40 @@ class WelcomePage extends StatelessWidget {
                   fontWeight: FontWeight.bold,
                 ),
               ),
-              const SizedBox(height: 40),
-              Padding(
-                padding: const EdgeInsets.only(
-                    bottom: 0, top: 0, left: 80, right: 80),
-                child: OutlinedButton.icon(
-                  onPressed: () {},
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 15),
-                    side: const BorderSide(color: Colors.grey),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(30),
-                    ),
-                  ),
-                  icon: const Icon(Icons.cloud),
-                  label: const Text('Load data from Drive'),
+              const SizedBox(height: 30),
+              const Text(
+                "Harmonia",
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 28,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.teal,
+                ),
+              ),
+              const SizedBox(height: 15),
+              const Text(
+                "A Privacy-First Support App for Alzheimer's Patients and Caregivers",
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w500,
+                  color: Colors.grey,
                 ),
               ),
               const SizedBox(height: 20),
-              const Row(
-                children: [
-                  Expanded(child: Divider()),
-                  Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 16),
-                    child: Text('or', style: TextStyle(color: Colors.grey)),
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 30),
+                child: Text(
+                  "Harmonia is designed specifically to help individuals with Alzheimer's maintain independence while providing caregivers with peace of mind.",
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 16,
+                    color: Colors.grey,
+                    height: 1.5,
                   ),
-                  Expanded(child: Divider()),
-                ],
+                ),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 50),
               Padding(
                 padding: const EdgeInsets.only(
                     bottom: 0, top: 0, left: 80, right: 80),

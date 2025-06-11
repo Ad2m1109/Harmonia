@@ -25,22 +25,76 @@ class Event {
   });
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'name': name,
-        'date': date,
-        'description': description,
-        'voicePath': voicePath,
-        'imagePaths': imagePaths,
-      };
+    'id': id,
+    'name': name,
+    'date': date,
+    'description': description,
+    'voicePath': voicePath,
+    'imagePaths': imagePaths,
+  };
 
   factory Event.fromJson(Map<String, dynamic> json) => Event(
-        id: json['id'],
-        name: json['name'],
-        date: json['date'],
-        description: json['description'] ?? '',
-        voicePath: json['voicePath'],
-        imagePaths: List<String>.from(json['imagePaths'] ?? []),
-      );
+    id: json['id'],
+    name: json['name'],
+    date: json['date'],
+    description: json['description'] ?? '',
+    voicePath: json['voicePath'],
+    imagePaths: List<String>.from(json['imagePaths'] ?? []),
+  );
+}
+
+class GameEntry {
+  final DateTime timestamp;
+  final String question;
+  final String userAnswer;
+  final String correctAnswer;
+  final bool isCorrect;
+  final String difficultyLevel;
+  final int currentScore;
+  final int totalQuestions;
+  final int streakCount;
+  final String feedback;
+
+  GameEntry({
+    required this.timestamp,
+    required this.question,
+    required this.userAnswer,
+    required this.correctAnswer,
+    required this.isCorrect,
+    required this.difficultyLevel,
+    required this.currentScore,
+    required this.totalQuestions,
+    required this.streakCount,
+    required this.feedback,
+  });
+
+  List<dynamic> toCsvRow() {
+    return [
+      timestamp.toIso8601String(),
+      question,
+      userAnswer,
+      correctAnswer,
+      isCorrect.toString(),
+      difficultyLevel,
+      currentScore,
+      totalQuestions,
+      streakCount,
+      feedback,
+    ];
+  }
+
+  static List<String> get csvHeaders => [
+    'Timestamp',
+    'Question',
+    'User Answer',
+    'Correct Answer',
+    'Is Correct',
+    'Difficulty Level',
+    'Current Score',
+    'Total Questions',
+    'Streak Count',
+    'Feedback',
+  ];
 }
 
 class GamesPage extends StatefulWidget {
@@ -56,6 +110,7 @@ class _GamesPageState extends State<GamesPage> with TickerProviderStateMixin {
   List<Map<String, dynamic>> _familyMembers = [];
   Map<String, String> _profileData = {};
   List<Event> _events = [];
+  List<GameEntry> _gameEntries = [];
   String _currentQuestion = '';
   String _correctAnswer = '';
   List<String> _options = [];
@@ -69,7 +124,7 @@ class _GamesPageState extends State<GamesPage> with TickerProviderStateMixin {
   int _correctAnswersInLevel = 0; // Track progress within current level
   bool _isLoading = false;
   bool _isProcessingAnswer = false;
-  
+
   // Track recent questions to avoid repetition
   List<String> _recentQuestions = [];
 
@@ -169,8 +224,88 @@ class _GamesPageState extends State<GamesPage> with TickerProviderStateMixin {
       _loadFamilyMembers(),
       _loadProfileData(),
       _loadEvents(),
+      _loadGameHistory(),
     ]);
     _generateQuestion();
+  }
+
+  Future<void> _loadGameHistory() async {
+    try {
+      final directory = await getApplicationDocumentsDirectory();
+      final file = File('${directory.path}/memory_game_history.csv');
+
+      if (await file.exists()) {
+        final contents = await file.readAsString();
+        List<List<dynamic>> csvTable =
+        const CsvToListConverter().convert(contents);
+
+        // Skip header row if it exists
+        if (csvTable.isNotEmpty && csvTable[0].contains('Timestamp')) {
+          csvTable.removeAt(0);
+        }
+
+        _gameEntries = csvTable.map((row) {
+          return GameEntry(
+            timestamp: DateTime.parse(row[0]),
+            question: row[1],
+            userAnswer: row[2],
+            correctAnswer: row[3],
+            isCorrect: row[4] == 'true',
+            difficultyLevel: row[5],
+            currentScore: int.parse(row[6].toString()),
+            totalQuestions: int.parse(row[7].toString()),
+            streakCount: int.parse(row[8].toString()),
+            feedback: row[9],
+          );
+        }).toList();
+
+        print('Loaded ${_gameEntries.length} game history entries');
+      }
+    } catch (e) {
+      print('Error loading game history: $e');
+    }
+  }
+
+  Future<void> _saveGameEntry(GameEntry entry) async {
+    try {
+      final directory = await getApplicationDocumentsDirectory();
+      final file = File('${directory.path}/memory_game_history.csv');
+
+      bool fileExists = await file.exists();
+      List<List<dynamic>> rows = [];
+
+      // If file exists, read existing data
+      if (fileExists) {
+        final contents = await file.readAsString();
+        if (contents.isNotEmpty) {
+          rows = const CsvToListConverter().convert(contents);
+        }
+      }
+
+      // Add header if file is new or empty
+      if (rows.isEmpty) {
+        rows.add(GameEntry.csvHeaders);
+      }
+
+      // Add new entry
+      rows.add(entry.toCsvRow());
+
+      // Convert to CSV and save
+      String csv = const ListToCsvConverter().convert(rows);
+      await file.writeAsString(csv);
+
+      // Add to local list
+      _gameEntries.add(entry);
+
+      print('Game entry saved successfully');
+    } catch (e) {
+      print('Error saving game entry: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to save game data: $e')),
+        );
+      }
+    }
   }
 
   Future<void> _loadFamilyMembers() async {
@@ -181,14 +316,14 @@ class _GamesPageState extends State<GamesPage> with TickerProviderStateMixin {
       if (await file.exists()) {
         final contents = await file.readAsString();
         List<List<dynamic>> csvTable =
-            const CsvToListConverter().convert(contents);
+        const CsvToListConverter().convert(contents);
 
         _familyMembers = csvTable
             .map((row) => {
-                  'name': row[0],
-                  'relation': row[1],
-                  'imagePath': row[2],
-                })
+          'name': row[0],
+          'relation': row[1],
+          'imagePath': row[2],
+        })
             .toList();
       }
     } catch (e) {
@@ -204,7 +339,7 @@ class _GamesPageState extends State<GamesPage> with TickerProviderStateMixin {
       if (await file.exists()) {
         final contents = await file.readAsString();
         List<List<dynamic>> csvTable =
-            const CsvToListConverter().convert(contents);
+        const CsvToListConverter().convert(contents);
         if (csvTable.isNotEmpty) {
           _profileData = {
             'firstName': csvTable[0][0] ?? '',
@@ -239,7 +374,7 @@ class _GamesPageState extends State<GamesPage> with TickerProviderStateMixin {
 
   String _formatEventsForQuestions() {
     if (_events.isEmpty) return 'No events or memories recorded yet.';
-    
+
     return _events.map((event) {
       String eventInfo = '- ${event.name} on ${event.date}';
       if (event.description.isNotEmpty) {
@@ -278,7 +413,7 @@ class _GamesPageState extends State<GamesPage> with TickerProviderStateMixin {
       print('Error generating question: $e');
       setState(() {
         _currentQuestion =
-            'Unable to generate question. Please check your internet connection.';
+        'Unable to generate question. Please check your internet connection.';
         _correctAnswer = '';
         _options = [];
         _isLoading = false;
@@ -361,7 +496,7 @@ class _GamesPageState extends State<GamesPage> with TickerProviderStateMixin {
         final data = jsonDecode(response.body);
         if (data['candidates'] != null && data['candidates'].isNotEmpty) {
           final responseText =
-              data['candidates'][0]['content']['parts'][0]['text'];
+          data['candidates'][0]['content']['parts'][0]['text'];
 
           // Find JSON in the response
           final jsonStart = responseText.indexOf('{');
@@ -396,7 +531,7 @@ class _GamesPageState extends State<GamesPage> with TickerProviderStateMixin {
 
     // Add a random motivational message
     final String motivation =
-        _motivationalMessages[Random().nextInt(_motivationalMessages.length)];
+    _motivationalMessages[Random().nextInt(_motivationalMessages.length)];
 
     // Check if level advancement occurred
     String levelAdvancementMessage = '';
@@ -492,9 +627,25 @@ class _GamesPageState extends State<GamesPage> with TickerProviderStateMixin {
           _currentFeedback = response;
         });
 
+        // Save game entry to CSV
+        final gameEntry = GameEntry(
+          timestamp: DateTime.now(),
+          question: _currentQuestion,
+          userAnswer: selected,
+          correctAnswer: _correctAnswer,
+          isCorrect: _isCorrect,
+          difficultyLevel: _difficultyLevel,
+          currentScore: _score,
+          totalQuestions: _totalQuestions,
+          streakCount: _streakCount,
+          feedback: response,
+        );
+
+        await _saveGameEntry(gameEntry);
+
         // Calculate delay based on feedback length (minimum 3 seconds, maximum 6 seconds)
         final delay =
-            Duration(milliseconds: min(6000, max(3000, response.length * 50)));
+        Duration(milliseconds: min(6000, max(3000, response.length * 50)));
 
         await Future.delayed(delay);
         if (mounted) {
@@ -540,7 +691,7 @@ class _GamesPageState extends State<GamesPage> with TickerProviderStateMixin {
     } else {
       // Consider dropping difficulty if struggling
       double recentSuccessRate = _totalQuestions > 4 ? _score / _totalQuestions : 1.0;
-      
+
       if (recentSuccessRate < 0.3 && _streakCount == 0) {
         if (_difficultyLevel == 'hard') {
           setState(() {
@@ -621,6 +772,14 @@ class _GamesPageState extends State<GamesPage> with TickerProviderStateMixin {
                       fontWeight: FontWeight.w500,
                     ),
                   ),
+                  if (_gameEntries.isNotEmpty)
+                    Text(
+                      'History: ${_gameEntries.length} games',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: secondaryTextColor,
+                      ),
+                    ),
                 ],
               ),
               Column(
@@ -663,8 +822,8 @@ class _GamesPageState extends State<GamesPage> with TickerProviderStateMixin {
               successRate > 0.7
                   ? Colors.green
                   : successRate > 0.4
-                      ? Colors.orange
-                      : Colors.red,
+                  ? Colors.orange
+                  : Colors.red,
             ),
           ),
           const SizedBox(height: 8),
@@ -749,6 +908,11 @@ class _GamesPageState extends State<GamesPage> with TickerProviderStateMixin {
                         '💪 Questions use your personal information, family members, and recorded life events to make them meaningful to you.',
                         style: TextStyle(color: textColor),
                       ),
+                      const SizedBox(height: 8),
+                      Text(
+                        '📊 All your game progress is automatically saved for tracking.',
+                        style: TextStyle(color: textColor),
+                      ),
                     ],
                   ),
                   actions: [
@@ -813,18 +977,18 @@ class _GamesPageState extends State<GamesPage> with TickerProviderStateMixin {
                           duration: const Duration(milliseconds: 300),
                           child: ElevatedButton(
                             onPressed:
-                                _showResult ? null : () => _checkAnswer(option),
+                            _showResult ? null : () => _checkAnswer(option),
                             style: ElevatedButton.styleFrom(
                               minimumSize: const Size(double.infinity, 60),
                               backgroundColor: _showResult
                                   ? isCorrectOption
-                                      ? Colors.green.shade600
-                                      : widget.isDarkMode 
-                                          ? Colors.grey.shade700
-                                          : Colors.grey.shade300
+                                  ? Colors.green.shade600
                                   : widget.isDarkMode
-                                      ? Colors.grey[800]
-                                      : Colors.blue.shade100,
+                                  ? Colors.grey.shade700
+                                  : Colors.grey.shade300
+                                  : widget.isDarkMode
+                                  ? Colors.grey[800]
+                                  : Colors.blue.shade100,
                               foregroundColor: _showResult && isCorrectOption
                                   ? Colors.white
                                   : textColor,
@@ -832,7 +996,7 @@ class _GamesPageState extends State<GamesPage> with TickerProviderStateMixin {
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(12),
                                 side: BorderSide(
-                                  color: widget.isDarkMode 
+                                  color: widget.isDarkMode
                                       ? Colors.grey.shade600
                                       : Colors.blue.shade300,
                                   width: 2,

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'package:csv/csv.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:harmonia/pages/content/journal_page.dart'; // Import JournalEntry class
 
 class SettingsPage extends StatefulWidget {
   final bool isDarkMode;
@@ -54,7 +55,7 @@ class _SettingsPageState extends State<SettingsPage> {
       if (await file.exists()) {
         final contents = await file.readAsString();
         List<List<dynamic>> csvTable =
-            const CsvToListConverter().convert(contents);
+        const CsvToListConverter().convert(contents);
         if (csvTable.isNotEmpty) {
           final firstName = csvTable[0][0] as String;
           final familyName = csvTable[0][1] as String;
@@ -155,7 +156,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
                 filled: true,
                 fillColor:
-                    widget.isDarkMode ? Color(0xFF3A3A3A) : Colors.grey[100],
+                widget.isDarkMode ? Color(0xFF3A3A3A) : Colors.grey[100],
               ),
             ),
             SizedBox(height: 16),
@@ -192,7 +193,7 @@ class _SettingsPageState extends State<SettingsPage> {
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
                               content:
-                                  Text('Please enter a valid phone number')),
+                              Text('Please enter a valid phone number')),
                         );
                       }
                     }
@@ -238,15 +239,38 @@ class _SettingsPageState extends State<SettingsPage> {
       child: ClipOval(
         child: _profileImage != null
             ? Image.memory(
-                _profileImage!.readAsBytesSync(),
-                width: 60,
-                height: 60,
-                fit: BoxFit.cover,
-                key: UniqueKey(),
-              )
+          _profileImage!.readAsBytesSync(),
+          width: 60,
+          height: 60,
+          fit: BoxFit.cover,
+          key: UniqueKey(),
+        )
             : Icon(Icons.person, size: 40, color: Colors.grey[600]),
       ),
     );
+  }
+
+  Future<List<JournalEntry>> _loadJournalEntries() async {
+    try {
+      final directory = await getApplicationDocumentsDirectory();
+      final file = File('${directory.path}/journal_entries.csv');
+      if (await file.exists()) {
+        final contents = await file.readAsString();
+        List<List<dynamic>> csvTable =
+        const CsvToListConverter().convert(contents);
+        return csvTable.map((row) {
+          return JournalEntry(
+            content: row[0],
+            date: DateTime.parse(row[1]),
+            isVoice: row[2] == 'true',
+            audioPath: row[3] == '' ? null : row[3],
+          );
+        }).toList();
+      }
+    } catch (e) {
+      print('Error loading journal entries: $e');
+    }
+    return [];
   }
 
   @override
@@ -258,7 +282,7 @@ class _SettingsPageState extends State<SettingsPage> {
       backgroundColor: backgroundColor,
       appBar: AppBar(
         backgroundColor:
-            widget.isDarkMode ? Color(0xFF1A4B5F) : Color(0xFF87CEEB),
+        widget.isDarkMode ? Color(0xFF1A4B5F) : Color(0xFF87CEEB),
         elevation: 0,
         title: Text(
           'Settings',
@@ -277,7 +301,7 @@ class _SettingsPageState extends State<SettingsPage> {
               padding: EdgeInsets.all(16),
               decoration: BoxDecoration(
                 color:
-                    widget.isDarkMode ? Color(0xFF2A6277) : Color(0xFFB6E5FF),
+                widget.isDarkMode ? Color(0xFF2A6277) : Color(0xFFB6E5FF),
                 borderRadius: BorderRadius.only(
                   bottomLeft: Radius.circular(20),
                   bottomRight: Radius.circular(20),
@@ -305,7 +329,7 @@ class _SettingsPageState extends State<SettingsPage> {
                     'Edit',
                     style: TextStyle(
                       color:
-                          widget.isDarkMode ? Colors.white : Color(0xFF87CEEB),
+                      widget.isDarkMode ? Colors.white : Color(0xFF87CEEB),
                     ),
                   ),
                 ),
@@ -331,9 +355,19 @@ class _SettingsPageState extends State<SettingsPage> {
                   isDarkMode: widget.isDarkMode,
                 ),
                 _buildSettingsTile(
-                  icon: Icons.language,
-                  title: 'Language',
-                  onTap: () {},
+                  icon: Icons.description_outlined,
+                  title: 'Daily Files',
+                  onTap: () async {
+                    final entries = await _loadJournalEntries();
+                    Navigator.pushNamed(
+                      context,
+                      '/settings/daily_files',
+                      arguments: {
+                        'entries': entries,
+                        'isDarkMode': widget.isDarkMode,
+                      },
+                    );
+                  },
                   isDarkMode: widget.isDarkMode,
                 ),
                 _buildSettingsTile(
@@ -346,7 +380,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 _buildSettingsTile(
                   icon: Icons.emergency_outlined,
                   title:
-                      'EMERGENCY SOS ${_emergencyNumber != null ? "- $_emergencyNumber" : ""}',
+                  'EMERGENCY SOS ${_emergencyNumber != null ? "- $_emergencyNumber" : ""}',
                   onTap: _showEmergencyDialog,
                   isDarkMode: widget.isDarkMode,
                   isEmergency: true,
@@ -376,19 +410,16 @@ class _SettingsPageState extends State<SettingsPage> {
                     );
 
                     try {
-                      // Try launching email client first
                       await launchUrl(
                         emailLaunchUri,
                         mode: LaunchMode.externalApplication,
                       );
                     } catch (e) {
-                      // If email client fails, try web Gmail as fallback
                       try {
                         final Uri gmailWebUri = Uri.parse(
                             'https://mail.google.com/mail/?view=cm&fs=1&to=ademyoussfi57@gmail.com&su=Contact%20Harmonia%20Support');
                         await launchUrl(gmailWebUri);
                       } catch (e2) {
-                        // If both fail, show error message
                         if (context.mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(
@@ -401,21 +432,6 @@ class _SettingsPageState extends State<SettingsPage> {
                     }
                   },
                   isDarkMode: widget.isDarkMode,
-                ),
-              ],
-              isDarkMode: widget.isDarkMode,
-            ),
-            SizedBox(height: 20),
-
-            // Logout Section
-            _buildSettingsSection(
-              [
-                _buildSettingsTile(
-                  icon: Icons.logout,
-                  title: 'log out',
-                  onTap: () {},
-                  isDarkMode: widget.isDarkMode,
-                  isLogout: true,
                 ),
               ],
               isDarkMode: widget.isDarkMode,
@@ -459,8 +475,8 @@ class _SettingsPageState extends State<SettingsPage> {
         color: isEmergency
             ? Colors.red
             : (isLogout
-                ? Colors.red
-                : (isDarkMode ? Colors.white : Color(0xFF87CEEB))),
+            ? Colors.red
+            : (isDarkMode ? Colors.white : Color(0xFF87CEEB))),
         size: 28,
       ),
       title: Text(
@@ -480,11 +496,10 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  // Add this helper function at the bottom of the class
   String? encodeQueryParameters(Map<String, String> params) {
     return params.entries
         .map((MapEntry<String, String> e) =>
-            '${Uri.encodeComponent(e.key)}=${Uri.encodeComponent(e.value)}')
+    '${Uri.encodeComponent(e.key)}=${Uri.encodeComponent(e.value)}')
         .join('&');
   }
 }

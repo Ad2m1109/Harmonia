@@ -33,11 +33,11 @@ class _OnboardingPageState extends State<OnboardingPage> {
                 setState(() => _currentPage = index);
               },
               children: [
-                Image.asset('assets/3.jpg', fit: BoxFit.cover),
-                Image.asset('assets/4.jpg', fit: BoxFit.cover),
-                Image.asset('assets/5.jpg', fit: BoxFit.cover),
-                Image.asset('assets/6.jpg', fit: BoxFit.cover),
-                Image.asset('assets/7.jpg', fit: BoxFit.cover),
+                Image.asset('assets/3.png', fit: BoxFit.cover),
+                Image.asset('assets/4.png', fit: BoxFit.cover),
+                Image.asset('assets/5.png', fit: BoxFit.cover),
+                Image.asset('assets/6.png', fit: BoxFit.cover),
+                Image.asset('assets/7.png', fit: BoxFit.cover),
               ],
             ),
           ),
